@@ -4,7 +4,6 @@
 from typing import List, Optional
 
 import aws_cdk as cdk
-
 # coginto imports, user pool and client
 # coginto imports, user pool and client
 # imports for lambda functions and API Gateway
@@ -80,6 +79,8 @@ class MinecraftPaas(Construct):
         top_level_custom_domain_name: Optional[str] = None,
         minecraft_server_version: Optional[str] = None,
         ec2_instance_type: Optional[str] = None,
+        disable_frontend: bool = False,
+        disable_auth: bool = False,
     ) -> None:
         super().__init__(scope, construct_id)
 
@@ -138,45 +139,47 @@ class MinecraftPaas(Construct):
                 domain_name=top_level_custom_domain_name,
             )
 
-        self.tls_cert: Optional[acm.Certificate] = None
-        if self.top_level_hosted_zone:
-            # DNS Validated cert with wildcard for all subdomains
-            # *.minecraft-paas.<top_level_custom_domain_name>
-            # *.*.minecraft-paas.<top_level_custom_domain_name>
-            self.tls_cert = acm.Certificate(
+        if not disable_frontend:
+            self.tls_cert: Optional[acm.Certificate] = None
+            if self.top_level_hosted_zone:
+                # DNS Validated cert with wildcard for all subdomains
+                # *.minecraft-paas.<top_level_custom_domain_name>
+                # *.*.minecraft-paas.<top_level_custom_domain_name>
+                self.tls_cert = acm.Certificate(
+                    scope=self,
+                    id=f"{self.node.id}TlsCert",
+                    validation=acm.CertificateValidation.from_dns(hosted_zone=self.top_level_hosted_zone),
+                    domain_name=f"minecraft-paas.{top_level_custom_domain_name}",
+                    subject_alternative_names=[f"*.minecraft-paas.{top_level_custom_domain_name}"],
+                )
+
+            """Frontend"""
+            frontend_static_site: StaticWebsite = make_minecraft_platform_frontend_static_website(
                 scope=self,
-                id=f"{self.node.id}TlsCert",
-                validation=acm.CertificateValidation.from_dns(hosted_zone=self.top_level_hosted_zone),
-                domain_name=f"minecraft-paas.{top_level_custom_domain_name}",
-                subject_alternative_names=[f"*.minecraft-paas.{top_level_custom_domain_name}"],
+                id_prefix=construct_id,
+                top_level_hosted_zone=self.top_level_hosted_zone,
+                tls_cert=self.tls_cert,
+            )
+            frontend_url = (
+                f"https://minecraft-paas.{top_level_custom_domain_name}"
+                if top_level_custom_domain_name
+                else f"https://{frontend_static_site.cloud_front_distribution.domain_name}"
             )
 
-        """Frontend"""
-        frontend_static_site: StaticWebsite = make_minecraft_platform_frontend_static_website(
-            scope=self,
-            id_prefix=construct_id,
-            top_level_hosted_zone=self.top_level_hosted_zone,
-            tls_cert=self.tls_cert,
-        )
-        frontend_url = (
-            f"https://minecraft-paas.{top_level_custom_domain_name}"
-            if top_level_custom_domain_name
-            else f"https://{frontend_static_site.cloud_front_distribution.domain_name}"
-        )
-
-        """OAuth identity provider"""
-        # add an API Gateway endpoint to interact with the lambda function
-        cognito_service = MinecraftCognitoConstruct(
-            scope=self,
-            construct_id="MinecraftCognitoService",
-            frontend_url=frontend_url,
-            cognito_domain_name=login_page_domain_name_prefix,
-        )
-        authorizer = apigw.CognitoUserPoolsAuthorizer(
-            scope=self,
-            id="CognitoAuthorizer",
-            cognito_user_pools=[cognito_service.user_pool],
-        )
+            if not disable_auth:
+                """OAuth identity provider"""
+                # add an API Gateway endpoint to interact with the lambda function
+                cognito_service = MinecraftCognitoConstruct(
+                    scope=self,
+                    construct_id="MinecraftCognitoService",
+                    frontend_url=frontend_url,
+                    cognito_domain_name=login_page_domain_name_prefix,
+                )
+                authorizer = apigw.CognitoUserPoolsAuthorizer(
+                    scope=self,
+                    id="CognitoAuthorizer",
+                    cognito_user_pools=[cognito_service.user_pool],
+                )
 
         """Backend REST API"""
         # create lambda for the rest API and attach authorizer to API Gateway
@@ -185,8 +188,8 @@ class MinecraftPaas(Construct):
             construct_id="MinecraftPaaSRestAPI",
             provision_server_state_machine_arn=mc_deployment_state_machine.state_machine.state_machine_arn,
             deprovision_server_state_machine_arn=mc_destruction_state_machine.state_machine.state_machine_arn,
-            frontend_cors_url=frontend_url,
-            authorizer=authorizer,
+            frontend_cors_url=frontend_url if (not disable_frontend) else "dummy.cors.url",
+            authorizer=authorizer if (not disable_auth) else None,
         )
 
         # add role to lambda to allow it to start the state machine
@@ -205,32 +208,34 @@ class MinecraftPaas(Construct):
             state_machine_arn=mc_destruction_state_machine.state_machine.state_machine_arn,
         )
 
-        """Frontend Configuration"""
-        create_config_json_file_in_static_site_s3_bucket(
-            scope=self,
-            id_prefix=construct_id,
-            backend_url=mc_rest_api.url,
-            cognito_app_client_id=cognito_service.client.user_pool_client_id,
-            cognito_hosted_ui_app_client_allowed_scopes=cognito_service.allowed_oauth_scopes,
-            cognito_user_pool_id=cognito_service.user_pool.user_pool_id,
-            static_site_bucket=frontend_static_site.website_bucket,
-            static_site_construct=frontend_static_site,
-            cognito_user_pool_region=Stack.of(cognito_service.user_pool).region,
-            cognito_hosted_ui_redirect_sign_in_url=frontend_url,
-            cognito_hosted_ui_redirect_sign_out_url=frontend_url,
-            cognito_hosted_ui_fqdn=cognito_service.fully_qualified_domain_name,
-        )
+        if not disable_frontend:
+            """Frontend Configuration"""
+            create_config_json_file_in_static_site_s3_bucket(
+                scope=self,
+                id_prefix=construct_id,
+                backend_url=mc_rest_api.url,
+                cognito_app_client_id=cognito_service.client.user_pool_client_id,
+                cognito_hosted_ui_app_client_allowed_scopes=cognito_service.allowed_oauth_scopes,
+                cognito_user_pool_id=cognito_service.user_pool.user_pool_id,
+                static_site_bucket=frontend_static_site.website_bucket,
+                static_site_construct=frontend_static_site,
+                cognito_user_pool_region=Stack.of(cognito_service.user_pool).region,
+                cognito_hosted_ui_redirect_sign_in_url=frontend_url,
+                cognito_hosted_ui_redirect_sign_out_url=frontend_url,
+                cognito_hosted_ui_fqdn=cognito_service.fully_qualified_domain_name,
+            )
 
-        CfnOutput(
-            scope=self,
-            id="FrontendUrl",
-            value=frontend_url,
-        )
-        CfnOutput(
-            scope=self,
-            id="FrontendStaticSiteBucketName",
-            value=frontend_static_site.website_bucket.bucket_name,
-        )
+        if not disable_frontend:
+            CfnOutput(
+                scope=self,
+                id="FrontendUrl",
+                value=frontend_url,
+            )
+            CfnOutput(
+                scope=self,
+                id="FrontendStaticSiteBucketName",
+                value=frontend_static_site.website_bucket.bucket_name,
+            )
         CfnOutput(
             scope=self,
             id="MinecraftDeployerJobDefinitionArn",

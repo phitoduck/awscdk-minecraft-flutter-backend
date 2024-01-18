@@ -9,6 +9,14 @@ DEV_ENV = Environment(account=os.environ["AWS_ACCOUNT_ID"], region=os.getenv("AW
 
 APP = App()
 
-MinecraftPaasStack(APP, "awscdk-minecraft", login_page_domain_name_prefix="minecraft-user-pool", env=DEV_ENV)
+MinecraftPaasStack(
+    APP,
+    "awscdk-minecraft-pickupgames-mc",
+    login_page_domain_name_prefix="pickupgames-mc-user-pool",
+    ec2_instance_type="t3.medium",
+    disable_frontend=True,
+    disable_auth=True,
+    env=DEV_ENV,
+)
 
 APP.synth()

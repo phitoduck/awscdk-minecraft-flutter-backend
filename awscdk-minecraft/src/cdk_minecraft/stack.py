@@ -19,6 +19,8 @@ class MinecraftPaasStack(cdk.Stack):
         manually in the AWS console or via the AWS CLI in order to be referenced here. WARNING! This stack \
         will not validate that the keypair exists, so not setting it will mysteriously cause the deployments \
         from the Minecraft PaaS web UI to fail.
+    :param disable_frontend: Optionally disable the frontend for the Minecraft PaaS
+    :param disable_auth: Optionally disable the authentication for the Minecraft PaaS
 
         ```bash
         # create a new keypair from ~/.ssh/id_rsa.pub
@@ -26,15 +28,6 @@ class MinecraftPaasStack(cdk.Stack):
         aws ec2 import-key-pair --key-name $SSH_KEY_PAIR_NAME --public-key-material file://~/.ssh/id_rsa.pub
         ```
     :param **kwargs: Additional arguments to pass to the stack
-
-    :ivar job_queue: The job queue for the batch jobs
-    :ivar minecraft_server_deployer_job_definition: The job definition for the batch jobs
-    :ivar mc_deployment_state_machine: The state machine to deploy a Minecraft server
-    :ivar mc_destruction_state_machine: The state machine to destroy a Minecraft server
-    :ivar frontend_static_site: The static website for the frontend
-    :ivar frontend_url: The URL of the frontend
-    :ivar cognito_service: The Cognito service for the frontend
-    :ivar mc_rest_api: The REST API for the Minecraft PaaS
     """
 
     def __init__(
@@ -47,6 +40,8 @@ class MinecraftPaasStack(cdk.Stack):
         top_level_custom_domain_name: Optional[str] = None,
         minecraft_server_version: Optional[str] = None,
         ec2_instance_type: Optional[str] = None,
+        disable_frontend: Optional[bool] = False,
+        disable_auth: Optional[bool] = False,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -60,4 +55,6 @@ class MinecraftPaasStack(cdk.Stack):
             top_level_custom_domain_name=top_level_custom_domain_name,
             minecraft_server_version=minecraft_server_version,
             ec2_instance_type=ec2_instance_type,
+            disable_frontend=disable_frontend,
+            disable_auth=disable_auth,
         )

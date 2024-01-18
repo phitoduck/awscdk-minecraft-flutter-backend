@@ -2,7 +2,7 @@ FROM python:3.9 AS install
 LABEL api_stage=1
 
 WORKDIR /app
-COPY setup.cfg setup.py ./
+COPY pyproject.toml ./
 COPY src/minecraft_paas_api/__init__.py ./src/minecraft_paas_api/
 
 RUN touch /usr/bin/config.txt

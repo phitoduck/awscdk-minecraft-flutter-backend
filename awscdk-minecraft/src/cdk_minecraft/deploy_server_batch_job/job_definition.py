@@ -2,11 +2,13 @@
 
 from typing import Optional
 
+import aws_cdk as cdk
 from aws_cdk import Stack
-from aws_cdk import aws_batch_alpha as batch_alpha
+from aws_cdk import aws_batch as batch
 from aws_cdk import aws_ecr_assets as ecr_assets
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_logs as logs
 from cdk_minecraft.constants import AWSCDK_MINECRAFT_SERVER_DEPLOYER__DIR
 from cdk_minecraft.deploy_server_batch_job.server_backup_docker_image import MinecraftServerBackupServiceImage
 from constructs import Construct
@@ -20,7 +22,7 @@ def make_minecraft_ec2_deployment__batch_job_definition(
     top_level_custom_domain_name: Optional[str] = None,
     minecraft_server_version: Optional[str] = None,
     ec2_instance_type: Optional[str] = "t2.medium",
-) -> batch_alpha.JobDefinition:
+) -> batch.EcsJobDefinition:
     """Create a batch job definition to deploy a Minecraft server on EC2.
 
     Parameters
@@ -33,7 +35,7 @@ def make_minecraft_ec2_deployment__batch_job_definition(
 
     Returns
     -------
-    batch_alpha.JobDefinition
+    batch.JobDefinition
         The job definition.
     """
     execution_role: iam.Role = make_batch_execution_role(scope=scope, id_prefix=id_prefix)
@@ -60,10 +62,12 @@ def make_minecraft_ec2_deployment__batch_job_definition(
     if minecraft_server_version:
         env_vars["MINECRAFT_SERVER_VERSION"] = minecraft_server_version
 
-    return batch_alpha.JobDefinition(
+    return batch.EcsJobDefinition(
         scope=scope,
         id=f"{id_prefix}CdkMinecraftEc2DeploymentJD",
-        container=batch_alpha.JobDefinitionContainer(
+        container=batch.EcsFargateContainerDefinition(
+            scope=scope,
+            id=f"{id_prefix}CdkMinecraftEc2DeploymentContainer",
             image=ecs.ContainerImage.from_asset(
                 directory=str(AWSCDK_MINECRAFT_SERVER_DEPLOYER__DIR),
                 platform=ecr_assets.Platform.LINUX_AMD64,
@@ -71,22 +75,18 @@ def make_minecraft_ec2_deployment__batch_job_definition(
             command=["cdk", "deploy", "--app", "'python3 /app/app.py'", "--require-approval=never"],
             job_role=job_role,
             execution_role=execution_role,
-            log_configuration=batch_alpha.LogConfiguration(
-                log_driver=batch_alpha.LogDriver.AWSLOGS,
-                options={
-                    # With the awslogs-group option, you can specify the log group that the awslogs log driver
-                    # sends its log streams to. If this isn't specified, aws/batch/job is used.
-                    "awslogs-group": "minecraft-server-deployment-job",
-                    # Specify whether you want the log group automatically created. If this option isn't specified, it defaults to false.
-                    "awslogs-create-group": "true",
-                },
+            logging=ecs.LogDriver.aws_logs(
+                log_group=logs.LogGroup(
+                    scope=scope,
+                    id=f"{id_prefix}CdkMinecraftEc2DeploymentLogGroup",
+                ),
+                stream_prefix=id_prefix,
             ),
             assign_public_ip=True,
             environment=env_vars,
-            vcpus=1,
-            memory_limit_mib=2 * 1024,
+            cpu=1,
+            memory=cdk.Size.gibibytes(1),
         ),
-        platform_capabilities=[batch_alpha.PlatformCapabilities.FARGATE],
     )
 
 

@@ -1,7 +1,7 @@
 """Boilerplate stack to make sure the CDK is set up correctly."""
 from typing import List, Optional
 
-from aws_cdk import aws_batch_alpha as batch
+from aws_cdk import aws_batch as batch
 from aws_cdk import aws_ec2 as ec2
 from constructs import Construct
 
@@ -29,7 +29,7 @@ class BatchJobQueue(Construct):
 
         default_vpc = lookup_default_vpc(scope=self, id_prefix=self.node.id)
 
-        fargate_compute_environment: batch.ComputeEnvironment = make_fargate_compute_environment(
+        fargate_compute_environment: batch.FargateComputeEnvironment = make_fargate_compute_environment(
             scope,
             id_prefix=construct_id,
             vpc=default_vpc,
@@ -62,8 +62,10 @@ def lookup_default_vpc(scope: Construct, id_prefix: str) -> ec2.Vpc:
 
 
 def make_fargate_compute_environment(
-    scope: Construct, id_prefix: str, vpc: ec2.Vpc
-) -> batch.ComputeEnvironment:
+    scope: Construct,
+    id_prefix: str,
+    vpc: ec2.Vpc,
+) -> batch.FargateComputeEnvironment:
     """Create a Fargate compute environment.
 
     Parameters
@@ -80,22 +82,19 @@ def make_fargate_compute_environment(
     batch.ComputeEnvironment
         The compute environment.
     """
-    return batch.ComputeEnvironment(
+    return batch.FargateComputeEnvironment(
         scope,
         id=f"{id_prefix}-fargate-compute-environment",
+        vpc=vpc,
+        maxv_cpus=8,
         service_role=None,
-        compute_resources=batch.ComputeResources(
-            type=batch.ComputeResourceType.FARGATE,
-            vpc=vpc,
-            maxv_cpus=8,
-        ),
     )
 
 
 def make_batch_job_queue(
     scope: Construct,
     id_prefix: str,
-    compute_environments: List[batch.ComputeEnvironment],
+    compute_environments: List[batch.FargateComputeEnvironment],
     priority: Optional[int] = 1,
 ) -> batch.JobQueue:
     """Create a batch job queue.
@@ -121,7 +120,7 @@ def make_batch_job_queue(
         id=f"{id_prefix}-job-queue",
         enabled=True,
         compute_environments=[
-            batch.JobQueueComputeEnvironment(compute_environment=comp_env, order=idx + 1)
+            batch.OrderedComputeEnvironment(compute_environment=comp_env, order=idx + 1)
             for idx, comp_env in enumerate(compute_environments)
         ],
         priority=priority,
