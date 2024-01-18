@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     cloud_formation_stack_name: str
     """Stack name for the server cloudforamtion stack."""
 
+    @property
+    def root_path(self) -> str:
+        """Return the root path of the application."""
+        root_path_env = "prod" if self.environment == "production" else "dev"
+        return f"/{root_path_env}"
+
     # pylint: disable=no-self-argument
     @validator("frontend_cors_url", pre=True)  # noqa: R0201
     def validate_frontend_cors_url(cls, frontend_cors_url: Optional[str], values: Dict[str, Any]) -> str:

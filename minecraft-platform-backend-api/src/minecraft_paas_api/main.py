@@ -58,8 +58,13 @@ def create_app(
         title="🎁 Minecraft Platform-as-a-Service API 🎄",
         description="A FastAPI app for the Minecraft API.",
         version="0.0.1",
-        docs_url="/",
+        docs_url="/docs",
         redoc_url=None,
+        # setting root_path to the API Gateway "stage name", e.g. /prod fixes
+        # an issue where the /openapi.json cannot be loaded by the swagger UI;
+        # not a huge issue if you have an authorizer in front of the API gateway
+        # since authorizers make it virtually impossible to access the docs page anyway
+        root_path=settings.root_path,
     )
 
     # we can put arbitrary attributes onto app.state and access them from the routes
